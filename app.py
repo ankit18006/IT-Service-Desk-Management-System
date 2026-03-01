@@ -2,9 +2,11 @@ import streamlit as st
 import sqlite3
 from datetime import datetime
 
-# ---------------- Session ----------------
+# ---------------- Session Setup ----------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = None
 if "role" not in st.session_state:
     st.session_state.role = None
 
@@ -19,7 +21,6 @@ def login(username, password):
 
 # ---------------- Login Page ----------------
 if not st.session_state.logged_in:
-    st.set_page_config(page_title="Login - IT Service Desk")
     st.title("🔐 IT Service Desk Login")
 
     username = st.text_input("Username")
@@ -29,6 +30,7 @@ if not st.session_state.logged_in:
         role = login(username, password)
         if role:
             st.session_state.logged_in = True
+            st.session_state.username = username
             st.session_state.role = role
             st.success("Login Successful!")
             st.rerun()
@@ -37,15 +39,13 @@ if not st.session_state.logged_in:
 
 # ---------------- Main App ----------------
 else:
-
-    # Database Connection
     conn = sqlite3.connect("it_service.db", check_same_thread=False)
     cursor = conn.cursor()
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
+        username TEXT,
         issue TEXT,
         description TEXT,
         priority TEXT,
@@ -55,42 +55,78 @@ else:
     """)
     conn.commit()
 
-    st.set_page_config(page_title="IT Service Desk", layout="wide")
-
     st.title("🖥 IT Service Desk Management System")
-    st.sidebar.write(f"Logged in as: **{st.session_state.role}**")
+
+    st.sidebar.write(f"👤 Logged in as: {st.session_state.username}")
+    st.sidebar.write(f"🔑 Role: {st.session_state.role}")
 
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
+        st.session_state.username = None
         st.session_state.role = None
         st.rerun()
 
-    menu = st.sidebar.selectbox("Menu", ["Raise Ticket", "View Tickets"])
+    # ---------------- USER PANEL ----------------
+    if st.session_state.role == "User":
 
-    # ---------------- Raise Ticket ----------------
-    if menu == "Raise Ticket":
-        st.subheader("Raise New IT Ticket")
+        menu = st.sidebar.selectbox("Menu", ["Raise Ticket", "My Tickets"])
 
-        name = st.text_input("Enter Your Name")
-        issue = st.text_input("Issue Title")
-        description = st.text_area("Issue Description")
-        priority = st.selectbox("Priority", ["Low", "Medium", "High"])
+        if menu == "Raise Ticket":
+            st.subheader("Raise New Ticket")
 
-        if st.button("Submit Ticket"):
-            if name and issue and description:
-                cursor.execute("""
-                    INSERT INTO tickets (name, issue, description, priority, status, date)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (name, issue, description, priority, "Open",
-                      datetime.now().strftime("%Y-%m-%d %H:%M")))
-                conn.commit()
-                st.success("✅ Ticket Submitted Successfully!")
+            issue = st.text_input("Issue Title")
+            description = st.text_area("Issue Description")
+            priority = st.selectbox("Priority", ["Low", "Medium", "High"])
+
+            if st.button("Submit Ticket"):
+                if issue and description:
+                    cursor.execute("""
+                        INSERT INTO tickets (username, issue, description, priority, status, date)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        st.session_state.username,
+                        issue,
+                        description,
+                        priority,
+                        "Open",
+                        datetime.now().strftime("%Y-%m-%d %H:%M")
+                    ))
+                    conn.commit()
+                    st.success("✅ Ticket Raised Successfully!")
+                else:
+                    st.error("Please fill all fields")
+
+        elif menu == "My Tickets":
+            st.subheader("📋 My Tickets")
+
+            cursor.execute("SELECT * FROM tickets WHERE username=?",
+                           (st.session_state.username,))
+            rows = cursor.fetchall()
+
+            if rows:
+                for row in rows:
+                    st.write(f"### Ticket ID: {row[0]}")
+                    st.write(f"Issue: {row[2]}")
+                    st.write(f"Description: {row[3]}")
+                    st.write(f"Priority: {row[4]}")
+                    st.write(f"Status: {row[5]}")
+                    st.write(f"Date: {row[6]}")
+
+                    if row[5] == "Open":
+                        st.warning("🟡 Status: In Process")
+                    elif row[5] == "In Progress":
+                        st.info("🔵 Status: In Progress")
+                    else:
+                        st.success("🟢 Status: Closed")
+
+                    st.markdown("---")
             else:
-                st.error("⚠ All fields are required!")
+                st.info("No tickets raised yet.")
 
-    # ---------------- View Tickets ----------------
-    elif menu == "View Tickets":
-        st.subheader("All Tickets")
+    # ---------------- ADMIN PANEL ----------------
+    elif st.session_state.role == "Admin":
+
+        st.subheader("📋 All User Tickets")
 
         cursor.execute("SELECT * FROM tickets")
         rows = cursor.fetchall()
@@ -98,27 +134,26 @@ else:
         if rows:
             for row in rows:
                 st.write(f"### Ticket ID: {row[0]}")
-                st.write(f"👤 Name: {row[1]}")
-                st.write(f"📝 Issue: {row[2]}")
-                st.write(f"📄 Description: {row[3]}")
-                st.write(f"🔥 Priority: {row[4]}")
-                st.write(f"📌 Status: {row[5]}")
-                st.write(f"📅 Date: {row[6]}")
+                st.write(f"User: {row[1]}")
+                st.write(f"Issue: {row[2]}")
+                st.write(f"Description: {row[3]}")
+                st.write(f"Priority: {row[4]}")
+                st.write(f"Current Status: {row[5]}")
+                st.write(f"Date: {row[6]}")
 
-                # Only Admin can update status
-                if st.session_state.role == "Admin":
-                    new_status = st.selectbox(
-                        f"Update Status for Ticket {row[0]}",
-                        ["Open", "In Progress", "Closed"],
-                        key=row[0]
-                    )
+                new_status = st.selectbox(
+                    f"Update Status for Ticket {row[0]}",
+                    ["Open", "In Progress", "Closed"],
+                    index=["Open", "In Progress", "Closed"].index(row[5]),
+                    key=row[0]
+                )
 
-                    if st.button(f"Update Ticket {row[0]}"):
-                        cursor.execute("UPDATE tickets SET status=? WHERE id=?",
-                                       (new_status, row[0]))
-                        conn.commit()
-                        st.success("Status Updated!")
-                        st.rerun()
+                if st.button(f"Update Ticket {row[0]}"):
+                    cursor.execute("UPDATE tickets SET status=? WHERE id=?",
+                                   (new_status, row[0]))
+                    conn.commit()
+                    st.success("Status Updated!")
+                    st.rerun()
 
                 st.markdown("---")
         else:
