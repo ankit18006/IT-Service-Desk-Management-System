@@ -12,9 +12,9 @@ if "role" not in st.session_state:
 
 # ---------------- Login Function ----------------
 def login(username, password):
-    if username == "admin" and password == "admin123":
+    if username == "admin" and password == "ankit123":
         return "Admin"
-    elif username == "user" and password == "user123":
+    elif username == "ankit" and password == "ankit@123":
         return "User"
     else:
         return None
@@ -32,7 +32,6 @@ if not st.session_state.logged_in:
             st.session_state.logged_in = True
             st.session_state.username = username
             st.session_state.role = role
-            st.success("Login Successful!")
             st.rerun()
         else:
             st.error("Invalid Credentials")
@@ -42,6 +41,7 @@ else:
     conn = sqlite3.connect("it_service.db", check_same_thread=False)
     cursor = conn.cursor()
 
+    # Create table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +54,12 @@ else:
     )
     """)
     conn.commit()
+
+    # Fix old DB structure automatically
+    try:
+        cursor.execute("ALTER TABLE tickets ADD COLUMN username TEXT")
+    except:
+        pass
 
     st.title("🖥 IT Service Desk Management System")
 
@@ -93,6 +99,7 @@ else:
                     ))
                     conn.commit()
                     st.success("✅ Ticket Raised Successfully!")
+                    st.rerun()
                 else:
                     st.error("Please fill all fields")
 
